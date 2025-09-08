@@ -69,11 +69,11 @@ venv.bak/
 
 # Project specific
 *.log
-tradebot.db
-data/logs/
-data/db/
-data/models/
-data/backtest/
+# tradebot.db
+# data/logs/
+# data/db/
+# data/models/
+# data/backtest/
 backups/
 
 # Sensitive information

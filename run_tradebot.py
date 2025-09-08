@@ -214,21 +214,58 @@ def run_tests():
         return False
 
 # Start trading bot
-def start_trading():
-    """Start the trading bot components"""
+def start_trading(auto_restart=False, restart_interval=15):
+    """Start the trading bot components
+    
+    Args:
+        auto_restart (bool): Whether to automatically restart the bot
+        restart_interval (int): Restart interval in minutes
+    """
+    start_time = datetime.now()
+    restart_time = start_time + timedelta(minutes=restart_interval)
+    
     # Start main controller
     main_process = start_process("Main Controller", "main.py")
     
     # Start scheduler
     scheduler_process = start_process("Scheduler", "scheduler.py")
     
+    if auto_restart:
+        logger.info(f"Auto-restart enabled. Bot will restart every {restart_interval} minutes.")
+        logger.info(f"Next restart scheduled at: {restart_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
     # Monitor logs
     while main_process.poll() is None and scheduler_process.poll() is None:
-        line = main_process.stdout.readline()
+        # Check if it's time to restart
+        if auto_restart and datetime.now() >= restart_time:
+            logger.info(f"Auto-restart triggered after {restart_interval} minutes of runtime")
+            
+            # Generate dashboard before restart to capture latest data
+            try:
+                logger.info("Generating dashboard before restart...")
+                subprocess.run([sys.executable, 'generate_html_dashboard.py'], 
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except Exception as e:
+                logger.error(f"Failed to generate dashboard: {e}")
+            
+            # Stop current processes
+            stop_all_processes()
+            
+            # Start new processes
+            logger.info("Restarting trading bot...")
+            main_process = start_process("Main Controller", "main.py")
+            scheduler_process = start_process("Scheduler", "scheduler.py")
+            
+            # Reset restart time
+            restart_time = datetime.now() + timedelta(minutes=restart_interval)
+            logger.info(f"Next restart scheduled at: {restart_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Process logs
+        line = main_process.stdout.readline() if main_process and main_process.stdout else None
         if line:
             print(f"[Main] {line.strip()}")
         
-        line = scheduler_process.stdout.readline()
+        line = scheduler_process.stdout.readline() if scheduler_process and scheduler_process.stdout else None
         if line:
             print(f"[Scheduler] {line.strip()}")
         
@@ -241,6 +278,9 @@ def main():
     parser.add_argument('command', choices=['start', 'stop', 'backup', 'restore', 'backtest', 'test'],
                         help='Command to execute')
     parser.add_argument('--backup-file', help='Backup file for restore command')
+    parser.add_argument('--auto-restart', action='store_true', help='Automatically restart the bot periodically')
+    parser.add_argument('--restart-interval', type=int, default=15, help='Restart interval in minutes (default: 15)')
+    parser.add_argument('--generate-dashboard', action='store_true', help='Generate dashboard on each restart')
     
     args = parser.parse_args()
     
@@ -252,7 +292,9 @@ def main():
     
     # Execute command
     if args.command == 'start':
-        start_trading()
+        # Enable auto-restart by default
+        auto_restart = True
+        start_trading(auto_restart=auto_restart, restart_interval=args.restart_interval)
     elif args.command == 'stop':
         stop_all_processes()
     elif args.command == 'backup':

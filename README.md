@@ -160,6 +160,33 @@ Integration tests ensure all components work together correctly. To run tests:
 ./run_tradebot.py test
 ```
 
+## Dashboard
+
+TradeBot includes a real-time dashboard to visualize your trading activities, positions, and performance metrics.
+
+### Features
+
+- Summary statistics (total positions, open positions, profit/loss)
+- Detailed transaction tables (positions, buy/sell pairs, orders)
+- Performance visualizations (profit/loss by symbol, trading activity, asset allocation)
+- Auto-refresh every 15 minutes
+
+### Running the Dashboard
+
+1. Generate the dashboard with your latest trading data:
+
+```
+python generate_html_dashboard.py
+```
+
+2. Open the generated HTML file in your web browser:
+
+```
+open dashboard.html
+```
+
+The dashboard will automatically refresh every 15 minutes to show the latest data. You can also manually regenerate it at any time by running the command above.
+
 ## Maintenance
 
 - Regular database backups are performed automatically
