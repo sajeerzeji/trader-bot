@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deployment script for TradeBot
+# Deployment script for TradeBot - Python-only version
 
 set -e
 
@@ -22,21 +22,24 @@ print_error() {
   echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
 }
 
-# Check if Docker is installed
-if ! command -v docker &> /dev/null; then
-  print_error "Docker is not installed. Please install Docker first."
-  exit 1
-fi
-
-# Check if Docker Compose is installed
-if ! command -v docker-compose &> /dev/null; then
-  print_error "Docker Compose is not installed. Please install Docker Compose first."
+# Check if Python is installed
+if ! command -v python &> /dev/null; then
+  print_error "Python is not installed. Please install Python first."
   exit 1
 fi
 
 # Create necessary directories
 print_message "Creating necessary directories..."
 mkdir -p data/db data/logs data/models data/backtest backups
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+  print_message "Creating virtual environment..."
+  python -m venv venv
+fi
+
+# Activate virtual environment
+source venv/bin/activate
 
 # Check if .env file exists
 if [ ! -f .env ]; then
@@ -88,41 +91,85 @@ EOL
   exit 1
 fi
 
+# Install dependencies if needed
+install_dependencies() {
+  print_message "Checking and installing dependencies..."
+  pip install -r requirements_fixed.txt
+}
+
 # Function to deploy the application
 deploy() {
-  print_message "Building and deploying TradeBot..."
-  docker-compose build
-  docker-compose up -d
+  print_message "Deploying TradeBot..."
+  
+  # Install dependencies
+  install_dependencies
+  
+  # Start the application
+  nohup python run_tradebot.py start > data/logs/tradebot.log 2>&1 &
+  echo $! > data/tradebot.pid
+  
   print_message "TradeBot deployed successfully!"
-  print_message "You can check the logs with: docker-compose logs -f"
+  print_message "You can check the logs with: tail -f data/logs/tradebot.log"
 }
 
 # Function to stop the application
 stop() {
   print_message "Stopping TradeBot..."
-  docker-compose down
-  print_message "TradeBot stopped."
+  if [ -f data/tradebot.pid ]; then
+    PID=$(cat data/tradebot.pid)
+    if ps -p $PID > /dev/null; then
+      kill $PID
+      print_message "TradeBot stopped."
+    else
+      print_warning "TradeBot is not running."
+    fi
+    rm data/tradebot.pid
+  else
+    print_warning "TradeBot is not running or PID file not found."
+  fi
 }
 
 # Function to restart the application
 restart() {
   print_message "Restarting TradeBot..."
-  docker-compose restart
+  stop
+  sleep 2
+  deploy
   print_message "TradeBot restarted."
 }
 
 # Function to show logs
 logs() {
-  docker-compose logs -f
+  if [ -f data/logs/tradebot.log ]; then
+    tail -f data/logs/tradebot.log
+  else
+    print_error "Log file not found."
+  fi
 }
 
 # Function to backup the database
 backup() {
   print_message "Creating database backup..."
   BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
-  docker-compose exec -T tradebot sqlite3 /data/db/tradebot.db ".backup '/tmp/tradebot_${BACKUP_DATE}.db'"
-  docker-compose exec -T tradebot tar -czf "/backups/tradebot_${BACKUP_DATE}.tar.gz" -C /tmp "tradebot_${BACKUP_DATE}.db"
-  docker-compose exec -T tradebot rm "/tmp/tradebot_${BACKUP_DATE}.db"
+  
+  # Make sure the database exists
+  if [ ! -f data/db/tradebot.db ]; then
+    print_error "Database file not found."
+    exit 1
+  fi
+  
+  # Create backup directory if it doesn't exist
+  mkdir -p backups
+  
+  # Create a temporary copy of the database
+  sqlite3 data/db/tradebot.db ".backup '/tmp/tradebot_${BACKUP_DATE}.db'"
+  
+  # Compress the backup
+  tar -czf "backups/tradebot_${BACKUP_DATE}.tar.gz" -C /tmp "tradebot_${BACKUP_DATE}.db"
+  
+  # Remove the temporary file
+  rm "/tmp/tradebot_${BACKUP_DATE}.db"
+  
   print_message "Backup created: backups/tradebot_${BACKUP_DATE}.tar.gz"
 }
 
@@ -144,8 +191,10 @@ restore() {
   print_warning "This will overwrite the current database. Press Ctrl+C to cancel or Enter to continue."
   read -r
   
-  # Stop the application
-  docker-compose down
+  # Stop the application if it's running
+  if [ -f data/tradebot.pid ]; then
+    stop
+  fi
   
   # Extract the backup
   mkdir -p tmp
@@ -166,23 +215,20 @@ restore() {
   # Clean up
   rm -rf tmp
   
-  # Start the application
-  docker-compose up -d
-  
   print_message "Database restored successfully!"
 }
 
 # Function to run backtests
 backtest() {
   print_message "Running backtest..."
-  docker-compose run --rm tradebot python backtesting.py
+  python backtesting.py
   print_message "Backtest completed. Check backtest_results.png for results."
 }
 
 # Function to run tests
 test() {
   print_message "Running tests..."
-  docker-compose run --rm tradebot python -m pytest integration_tests.py -v
+  python -m pytest integration_tests.py -v
   print_message "Tests completed."
 }
 
@@ -191,7 +237,7 @@ show_help() {
   echo "Usage: $0 [command]"
   echo ""
   echo "Commands:"
-  echo "  deploy    Build and deploy the application"
+  echo "  deploy    Deploy the application"
   echo "  stop      Stop the application"
   echo "  restart   Restart the application"
   echo "  logs      Show application logs"
