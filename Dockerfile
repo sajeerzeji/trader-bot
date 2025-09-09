@@ -1,25 +1,16 @@
-FROM ubuntu:22.04
+FROM python:3.9-slim
 
-# Install Python and build dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
-    python3.9 \
-    python3-pip \
-    python3.9-dev \
     build-essential \
     wget \
-    && ln -sf /usr/bin/python3.9 /usr/bin/python \
-    && ln -sf /usr/bin/pip3 /usr/bin/pip \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for TA-Lib
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+# No need to reinstall build dependencies
 
 # Install TA-Lib
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
@@ -35,7 +26,10 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements_fixed.txt requirements_fixed.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir numpy && \
+    pip install --no-cache-dir -r requirements_fixed.txt
 
 # Copy application code
 COPY . .

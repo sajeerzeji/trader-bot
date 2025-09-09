@@ -478,6 +478,14 @@ class PortfolioManager:
         if not self.check_sector_diversification(symbol, existing_symbols):
             return False, "Would violate sector diversification constraint"
         
+        # Calculate current total investment
+        current_investment = sum(p['quantity'] * p['current_price'] for p in positions)
+        
+        # Check if adding this position would exceed initial account size
+        estimated_quantity, estimated_dollar_amount = self.calculate_optimal_position_size(symbol, price, conviction_score)
+        if current_investment + estimated_dollar_amount > self.initial_account_size:
+            return False, f"Adding this position would exceed initial account size of ${self.initial_account_size:.2f}"
+        
         # Check if we have enough cash
         quantity, dollar_amount = self.calculate_optimal_position_size(symbol, price, conviction_score)
         if quantity <= 0:

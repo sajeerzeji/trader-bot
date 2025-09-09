@@ -54,7 +54,7 @@ class BuyEngine:
             max_position_pct = float(os.getenv('MAX_POSITION_SIZE', 0.3))
             self.max_position_size = max_position_pct * self.initial_account_size
             
-            conn = sqlite3.connect('tradebot.db')
+            conn = sqlite3.connect('data/db/tradebot.db')
             cursor = conn.cursor()
             
             # Get all settings
@@ -273,16 +273,45 @@ class BuyEngine:
         
         logger.info(f"Attempting to buy {num_stocks} stocks: {[s['symbol'] for s in stocks_to_buy]}")
         
-        # Place orders
+        # Check current total investment
+        try:
+            conn = sqlite3.connect('data/db/tradebot.db')
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT SUM(quantity * current_price) 
+                FROM positions 
+                WHERE status = 'active'
+            ''')
+            current_investment = cursor.fetchone()[0] or 0
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error calculating current investment: {e}")
+            current_investment = 0
+        
+        logger.info(f"Current total investment: ${current_investment:.2f} of ${self.initial_account_size:.2f} limit")
+        
+        # Place orders while respecting initial account size limit
         orders = []
+        running_total = current_investment
+        
         for stock in stocks_to_buy:
             symbol = stock['symbol']
             price = stock['price']
+            
+            # Calculate position size
+            quantity, dollar_amount = self.calculate_position_size(price, num_stocks)
+            
+            # Check if this would exceed initial account size
+            if running_total + dollar_amount > self.initial_account_size:
+                logger.warning(f"Skipping {symbol}: would exceed initial account size of ${self.initial_account_size:.2f}")
+                continue
             
             # Place order with position sizing for multiple positions
             order_result = self.place_buy_order(symbol, price, num_stocks)
             if order_result:
                 orders.append(order_result)
+                running_total += dollar_amount
+                logger.info(f"Running total after buying {symbol}: ${running_total:.2f}")
         
         logger.info(f"Successfully placed {len(orders)} buy orders out of {num_stocks} attempted")
         return orders
@@ -308,7 +337,7 @@ class BuyEngine:
     def record_trade(self, symbol, action, quantity, price):
         """Record a trade in the database"""
         try:
-            conn = sqlite3.connect('tradebot.db')
+            conn = sqlite3.connect('data/db/tradebot.db')
             cursor = conn.cursor()
             
             # Insert into trades table
@@ -351,6 +380,31 @@ class BuyEngine:
         price = stock_info['price']
         
         logger.info(f"Attempting to buy {symbol} at ${price:.2f}")
+        
+        # Check current total investment
+        try:
+            conn = sqlite3.connect('data/db/tradebot.db')
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT SUM(quantity * current_price) 
+                FROM positions 
+                WHERE status = 'active'
+            ''')
+            current_investment = cursor.fetchone()[0] or 0
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error calculating current investment: {e}")
+            current_investment = 0
+        
+        logger.info(f"Current total investment: ${current_investment:.2f} of ${self.initial_account_size:.2f} limit")
+        
+        # Calculate position size
+        quantity, dollar_amount = self.calculate_position_size(price)
+        
+        # Check if this would exceed initial account size
+        if current_investment + dollar_amount > self.initial_account_size:
+            logger.warning(f"Cannot buy {symbol}: would exceed initial account size of ${self.initial_account_size:.2f}")
+            return None
         
         # Place the buy order
         order_info = self.place_buy_order(symbol, price)
